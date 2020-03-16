@@ -1,1 +1,0 @@
-{"BackupPaths":["mypath1/data","mypath2/data"],"WriterPaths":["C:/MyBackupPath"],"Extensions":["TXT"],"Frequency":4,"StartRunningAt":"08:00","StopRunningAt":"17:00","DaysOfWeek":"SEG, TER, QUA, QUI, SEX, SAB, DOM"}

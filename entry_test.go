@@ -11,7 +11,7 @@ func TestCompressing(t *testing.T) {
 	w := createZipWriter("done.zip")
 	defer w.Close()
 
-	fileName := "teste-config.json"
+	fileName := "config.json"
 
 	fileToZip, err := os.Open(fileName)
 	defer fileToZip.Close()
@@ -43,5 +43,15 @@ func TestCompressing(t *testing.T) {
 
 	if err != nil {
 		panic(err)
+	}
+}
+
+func TestGenerateFileName(t *testing.T) {
+	result := generateZipFileName()
+
+	if result == "" {
+		t.Fail()
+	} else {
+		t.Log(result)
 	}
 }
