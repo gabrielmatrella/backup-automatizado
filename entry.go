@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +21,34 @@ import (
 const CONFIG_FILE_NAME = "config.json"
 
 var globalConfig Configuration
+
+var PATH_SEPARATOR string
+
+func main() {
+	// configure path separator
+	if runtime.GOOS == "windows" {
+		PATH_SEPARATOR = "\\"
+	} else {
+		PATH_SEPARATOR = "/"
+	}
+
+	if configFileExists() {
+		globalConfig = Configuration{}
+		err := gonfig.GetConf(CONFIG_FILE_NAME, &globalConfig)
+
+		if err != nil {
+			panic(err)
+		}
+
+		// start jobs in separete routine
+		startJobs()
+
+		// lock application to keep it running
+		for {
+			select {}
+		}
+	}
+}
 
 type Configuration struct {
 	BackupPaths []string
@@ -39,51 +69,83 @@ func (b BackupJob) Run() {
 	if isJobDay {
 		if writerPathsExist() {
 			for _, root := range globalConfig.BackupPaths {
-				zipFile := createZipFile(generateZipFileName())
-				w := createZipWriter(zipFile)
+				root = strings.TrimRight(root, PATH_SEPARATOR)
 
-				defer zipFile.Close()
-				defer w.Close()
+				var zipFile *os.File
+				var firstZipFilePath string
+				var zipFileName string = generateZipFileName()
 
-				err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-					// skip root folder
-					if path == root {
-						return nil
-					}
+				for i, wPath := range globalConfig.WriterPaths {
+					if i == 0 {
+						zipFile = createZipFile(wPath + PATH_SEPARATOR + zipFileName)
+						w := createZipWriter(zipFile)
 
-					// append filtered file
-					if info.IsDir() {
+						firstZipFilePath = wPath + PATH_SEPARATOR + zipFileName
 
-					} else if isValidExtension(info.Name()[strings.LastIndex(info.Name(), ".")+1 : len(info.Name())]) {
-						header, err := zip.FileInfoHeader(info)
+						lastPathIndex := strings.LastIndex(root, PATH_SEPARATOR)
+						err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+							// skip root folder
+							if path == root {
+								return nil
+							}
+
+							// append filtered file
+							if !info.IsDir() && isValidExtension(info.Name()[strings.LastIndex(info.Name(), ".")+1:len(info.Name())]) {
+								log.Println("Scan:", path)
+								pathToSave := path[lastPathIndex+1:]
+
+								f, err := os.Open(path)
+
+								if err != nil {
+									fmt.Println(err)
+								}
+
+								header, err := zip.FileInfoHeader(info)
+
+								if err != nil {
+									fmt.Println(err)
+								}
+
+								header.Name = pathToSave
+								header.Method = zip.Deflate
+
+								fW, _ := w.CreateHeader(header)
+
+								_, err = io.Copy(fW, f)
+								if err != nil {
+									fmt.Println(err.Error())
+								}
+							}
+
+							return nil
+						})
 
 						if err != nil {
 							fmt.Println(err)
 						}
 
-						header.Name = path
-						header.Method = zip.Deflate
+						w.Close()
+						zipFile.Close()
+					} else {
+						// copy zip from first backup location
+						dest, _ := os.Create(wPath + PATH_SEPARATOR + zipFileName)
 
-						fileWriter, _ := w.CreateHeader(header)
+						firstZipFile, _ := os.Open(firstZipFilePath)
 
-						f, err := os.Open(path)
+						_, err := io.Copy(dest, firstZipFile)
 
 						if err != nil {
-							fmt.Println(err)
+							fmt.Println(err.Error())
 						}
 
-						io.Copy(fileWriter, f)
+						dest.Close()
+						firstZipFile.Close()
 					}
 
-					return nil
-				})
-
-				if err != nil {
-					fmt.Println(err)
+					log.Println("Copy to", wPath+PATH_SEPARATOR+zipFileName)
 				}
-
-				w.Close()
 			}
+
 		}
 	}
 }
@@ -99,26 +161,13 @@ func isValidExtension(fileExtension string) bool {
 }
 
 func generateZipFileName() string {
-	return time.Now().Format("Backup_200601021504") + ".zip"
+	return time.Now().Format("Backup_20060102150405") + ".zip"
 }
 
-func main() {
-	if configFileExists() {
-		globalConfig = Configuration{}
-		err := gonfig.GetConf(CONFIG_FILE_NAME, &globalConfig)
+func createZipFile(zipFileName string) *os.File {
+	newZipFile, _ := os.Create(zipFileName)
 
-		if err != nil {
-			panic(err)
-		}
-
-		// start jobs in separete routine
-		startJobs()
-
-		// lock application to keep it running
-		for {
-			select {}
-		}
-	}
+	return newZipFile
 }
 
 func startJobs() {
@@ -126,16 +175,9 @@ func startJobs() {
 
 	// Run first job
 	go job.Run()
-
 	c := clockwerk.New()
 	c.Every(time.Duration(globalConfig.Frequency) * time.Minute).Do(job)
 	c.Start()
-}
-
-func createZipFile(zipFileName string) *os.File {
-	newZipFile, _ := os.Create(zipFileName)
-
-	return newZipFile
 }
 
 func createZipWriter(zipFile *os.File) *zip.Writer {
@@ -181,7 +223,7 @@ func createDefaultConfigFile() bool {
 	if createFileError != nil {
 		return false
 	} else {
-		return true
+		return false
 	}
 }
 

@@ -8,7 +8,7 @@ import (
 )
 
 func TestCompressing(t *testing.T) {
-	w := createZipWriter("done.zip")
+	w := createZipWriter(createZipFile("done.zip"))
 	defer w.Close()
 
 	fileName := "config.json"
@@ -54,4 +54,10 @@ func TestGenerateFileName(t *testing.T) {
 	} else {
 		t.Log(result)
 	}
+}
+
+func TestGenerateFileName2(t *testing.T) {
+	os.Open("C:\\Users\\Gabriel\\Documents\\Nekrotus\\ORDEM_DAS_POCOES.TXT")
+
+	select {}
 }

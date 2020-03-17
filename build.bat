@@ -1,0 +1,1 @@
+go build -o backup.exe entry.go
