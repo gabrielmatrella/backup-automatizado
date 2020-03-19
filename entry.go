@@ -71,16 +71,16 @@ func (b BackupJob) Run() {
 			for _, root := range globalConfig.BackupPaths {
 				root = strings.TrimRight(root, PATH_SEPARATOR)
 
-				var zipFile *os.File
+				// reusable after first write folder
 				var firstZipFilePath string
 				var zipFileName string = generateZipFileName()
 
 				for i, wPath := range globalConfig.WriterPaths {
-					if i == 0 {
-						zipFile = createZipFile(wPath + PATH_SEPARATOR + zipFileName)
-						w := createZipWriter(zipFile)
+					currWriteFilePath := wPath + PATH_SEPARATOR + zipFileName
 
-						firstZipFilePath = wPath + PATH_SEPARATOR + zipFileName
+					if i == 0 {
+						zipFile := createZipFile(currWriteFilePath)
+						w := createZipWriter(zipFile)
 
 						lastPathIndex := strings.LastIndex(root, PATH_SEPARATOR)
 						err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -93,28 +93,7 @@ func (b BackupJob) Run() {
 							if !info.IsDir() && isValidExtension(info.Name()[strings.LastIndex(info.Name(), ".")+1:len(info.Name())]) {
 								log.Println("Scan:", path)
 								pathToSave := path[lastPathIndex+1:]
-
-								f, err := os.Open(path)
-
-								if err != nil {
-									fmt.Println(err)
-								}
-
-								header, err := zip.FileInfoHeader(info)
-
-								if err != nil {
-									fmt.Println(err)
-								}
-
-								header.Name = pathToSave
-								header.Method = zip.Deflate
-
-								fW, _ := w.CreateHeader(header)
-
-								_, err = io.Copy(fW, f)
-								if err != nil {
-									fmt.Println(err.Error())
-								}
+								return addFileToZip(path, pathToSave, w)
 							}
 
 							return nil
@@ -126,20 +105,11 @@ func (b BackupJob) Run() {
 
 						w.Close()
 						zipFile.Close()
+
+						firstZipFilePath = currWriteFilePath
 					} else {
 						// copy zip from first backup location
-						dest, _ := os.Create(wPath + PATH_SEPARATOR + zipFileName)
-
-						firstZipFile, _ := os.Open(firstZipFilePath)
-
-						_, err := io.Copy(dest, firstZipFile)
-
-						if err != nil {
-							fmt.Println(err.Error())
-						}
-
-						dest.Close()
-						firstZipFile.Close()
+						copyFile(currWriteFilePath, firstZipFilePath)
 					}
 
 					log.Println("Copy to", wPath+PATH_SEPARATOR+zipFileName)
@@ -148,6 +118,69 @@ func (b BackupJob) Run() {
 
 		}
 	}
+}
+
+func addFileToZip(filePath string, fileInZipPath string, w *zip.Writer) error {
+	f, err := os.Open(filePath)
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fileInfo, err := os.Stat(filePath)
+
+	if err != nil {
+		return err
+	}
+
+	h, err := zip.FileInfoHeader(fileInfo)
+
+	if err != nil {
+		return err
+	}
+
+	h.Name = fileInZipPath
+	h.Method = zip.Deflate
+
+	fW, err := w.CreateHeader(h)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(fW, f)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func copyFile(dest, src string) bool {
+	destFile, err := os.Create(dest)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		return false
+	}
+
+	srcFile, err := os.Open(src)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		return false
+	}
+
+	_, err = io.Copy(destFile, srcFile)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		return false
+	}
+
+	destFile.Close()
+	srcFile.Close()
+
+	return true
 }
 
 func isValidExtension(fileExtension string) bool {
